@@ -34,5 +34,9 @@ BTW JOIN SLQNT'S DISCORD SERVER RIGHT HERE
 
 https://discord.gg/Eebv8NzcK
 
+Source code is here: https://github.com/SwagSoftware/KisakCOD
+i am not affiliated with him either 
+also i have some grammar issues so please notify me
+
 
 
