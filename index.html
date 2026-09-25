@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
 
     <title>kisakcod webport</title>
@@ -65,7 +66,7 @@
              */
             object-fit: fill;
 
-            cursor: none;
+            cursor: none !important;
 
             touch-action: none;
 
@@ -232,6 +233,32 @@
             font-size: 18px;
         }
 
+        #version-tag {
+            position: fixed;
+            left: 20px;
+            top: 20px;
+            z-index: 6;
+            text-align: left;
+            color: #ddd;
+            font-family: "Conduit ITC", sans-serif;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, .85);
+            pointer-events: none;
+            user-select: none;
+        }
+
+        #version-tag .version-line {
+            font-size: 22px;
+            font-weight: bold;
+            color: #fff;
+            letter-spacing: .04em;
+        }
+
+        #version-tag .credit-line {
+            font-size: 15px;
+            color: #bbb;
+            margin-top: 3px;
+        }
+
         body.game-running:not(.is-fullscreen) #fullscreen-button {
             display: block;
         }
@@ -239,10 +266,71 @@
         body.game-running #installer-panel {
             display: none !important;
         }
+
+        body.game-running,
+        body.game-running #canvas {
+            cursor: none !important;
+        }
+
+        body.game-running #fullscreen-button {
+            cursor: pointer !important;
+        }
+
+        body.game-running #game-console {
+            cursor: text !important;
+        }
+
+        body.game-running #version-tag {
+            display: none !important;
+        }
+
+        #game-console {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 4;
+            max-height: 10vh;
+            overflow-y: auto;
+            margin: 0;
+            padding: 3px 8px;
+            box-sizing: border-box;
+            background: rgba(0, 0, 0, .55);
+            color: #8fdc8f;
+            font-family: "Courier New", monospace;
+            font-size: 10px;
+            line-height: 1.25;
+            white-space: pre-wrap;
+            pointer-events: auto;
+            overscroll-behavior: contain;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, .8);
+        }
+
+        #game-console:empty {
+            display: none;
+        }
+
+        #game-console .err {
+            color: #ff8080;
+        }
+
+        #game-console .warn {
+            color: #ffd480;
+        }
+
+        body.is-fullscreen #game-console {
+            display: none !important;
+        }
     </style>
 </head>
 
 <body>
+
+    <div id="version-tag">
+        <div class="version-line">Version 1.0</div>
+        <div class="credit-line">Made by: ricefarmer/Viet guy but yeah</div>
+        <div class="credit-line">Web port by: slqnt</div>
+    </div>
 
     <div id="installer-panel">
 
@@ -268,6 +356,16 @@
                 Wipe data
             </button>
 
+            <button id="download-save-button" type="button">
+                Download save data
+            </button>
+
+            <button id="upload-save-button" type="button">
+                Upload save data
+            </button>
+
+            <input id="upload-save-input" type="file" accept=".dat,.zip" hidden>
+
         </div>
 
         <div id="install-options" hidden>
@@ -282,6 +380,11 @@
                 <label>
                     <input id="include-video" type="checkbox">
                     Video
+                </label>
+
+                <label>
+                    <input id="exclude-campaign" type="checkbox">
+                    Disable campaign maps
                 </label>
 
             </div>
@@ -316,16 +419,14 @@
 
     </div>
 
-    <canvas
-        id="canvas"
-        tabindex="-1"
-        width="1280"
-        height="720">
+    <canvas id="canvas" tabindex="-1" width="1280" height="720">
     </canvas>
 
     <button id="fullscreen-button" type="button">
         Fullscreen
     </button>
+
+    <div id="game-console" aria-live="polite"></div>
 
     <template id="module-script-template">
         <script async src="kisakcod-sp.js"></script>
@@ -356,6 +457,15 @@
         const wipeButton =
             document.getElementById("wipe-data-button");
 
+        const downloadSaveButton =
+            document.getElementById("download-save-button");
+
+        const uploadSaveButton =
+            document.getElementById("upload-save-button");
+
+        const uploadSaveInput =
+            document.getElementById("upload-save-input");
+
         const installOptions =
             document.getElementById("install-options");
 
@@ -364,6 +474,9 @@
 
         const includeVideo =
             document.getElementById("include-video");
+
+        const excludeCampaign =
+            document.getElementById("exclude-campaign");
 
         const installCopySize =
             document.getElementById("install-copy-size");
@@ -386,6 +499,96 @@
         const installLog =
             document.getElementById("install-log");
 
+        const gameConsole =
+            document.getElementById("game-console");
+
+
+        function consoleWrite(message, isError, isWarn) {
+
+            const nearBottom =
+                gameConsole.scrollHeight -
+                gameConsole.scrollTop -
+                gameConsole.clientHeight < 24;
+
+            const line =
+                document.createElement("div");
+
+            if (isError) {
+                line.className = "err";
+            } else if (isWarn) {
+                line.className = "warn";
+            }
+
+            line.textContent = message;
+
+            gameConsole.appendChild(line);
+
+            while (gameConsole.childNodes.length > 200) {
+                gameConsole.removeChild(gameConsole.firstChild);
+            }
+
+            if (nearBottom) {
+                gameConsole.scrollTop =
+                    gameConsole.scrollHeight;
+            }
+
+        }
+
+
+        function formatConsoleArgs(args) {
+
+            return Array.from(args).map(function (arg) {
+
+                if (typeof arg === "string") {
+                    return arg;
+                }
+
+                if (arg instanceof Error) {
+                    return arg.stack || arg.message;
+                }
+
+                try {
+                    return JSON.stringify(arg);
+                } catch {
+                    return String(arg);
+                }
+
+            }).join(" ");
+
+        }
+
+
+        (function mirrorDevToolsConsole() {
+
+            const original = {
+                log: console.log.bind(console),
+                info: console.info.bind(console),
+                warn: console.warn.bind(console),
+                error: console.error.bind(console)
+            };
+
+            console.log = function (...args) {
+                original.log(...args);
+                consoleWrite(formatConsoleArgs(args));
+            };
+
+            console.info = function (...args) {
+                original.info(...args);
+                consoleWrite(formatConsoleArgs(args));
+            };
+
+            console.warn = function (...args) {
+                original.warn(...args);
+                consoleWrite(formatConsoleArgs(args), false, true);
+            };
+
+            console.error = function (...args) {
+                original.error(...args);
+                consoleWrite(formatConsoleArgs(args), true);
+            };
+
+        })();
+
 
         function log(message) {
             installLog.textContent +=
@@ -393,7 +596,27 @@
 
             installLog.scrollTop =
                 installLog.scrollHeight;
+
+            consoleWrite(message);
         }
+
+
+        window.addEventListener("error", function (event) {
+            consoleWrite(
+                "ERROR: " +
+                (event.error?.stack || event.error?.message || event.message),
+                true
+            );
+        });
+
+
+        window.addEventListener("unhandledrejection", function (event) {
+            consoleWrite(
+                "ERROR: " +
+                (event.reason?.stack || event.reason?.message || event.reason),
+                true
+            );
+        });
 
 
         function status(message) {
@@ -522,9 +745,9 @@
                             .keyboard
                             ?.lock?.();
 
-                    } catch {}
+                    } catch { }
 
-                } catch {}
+                } catch { }
 
             }
         );
@@ -549,9 +772,9 @@
                         navigator
                             .keyboard
                             ?.lock?.()
-                            .catch(() => {});
+                            .catch(() => { });
 
-                    } catch {}
+                    } catch { }
 
                 }
 
@@ -638,7 +861,7 @@
 
             printErr: console.log,
 
-            setStatus() {},
+            setStatus() { },
 
             onAbort: message => {
 
@@ -681,7 +904,7 @@
 
             inputInstalled = true;
 
-            canvas.style.cursor = "default";
+            canvas.style.cursor = "none";
 
             let mouseDown = false;
 
@@ -871,8 +1094,8 @@
 
                 return 0 |
                     getHeap32()[
-                        (base >> 2) +
-                        wantLockOff
+                    (base >> 2) +
+                    wantLockOff
                     ];
 
             }
@@ -880,14 +1103,11 @@
 
             function updateCursor() {
 
+                canvas.style.cursor = "none";
+
+
                 var wantLock =
                     getWantLock();
-
-
-                canvas.style.cursor =
-                    wantLock
-                        ? "none"
-                        : "default";
 
 
                 if (
@@ -898,7 +1118,7 @@
 
                     try {
                         document.exitPointerLock();
-                    } catch {}
+                    } catch { }
 
                 }
 
@@ -925,7 +1145,7 @@
 
                 var queueState =
                     heap[
-                        base32 + 8
+                    base32 + 8
                     ] >>> 0;
 
                 var index =
@@ -1030,7 +1250,7 @@
 
                         canvas.focus();
 
-                    } catch {}
+                    } catch { }
 
 
                     updateCursor();
@@ -1053,12 +1273,12 @@
                             ) {
 
                                 lockPromise.catch(
-                                    function () {}
+                                    function () { }
                                 );
 
                             }
 
-                        } catch {}
+                        } catch { }
 
                     }
 
@@ -1220,7 +1440,7 @@
 
                         var character =
                             event.key &&
-                            event.key.length === 1
+                                event.key.length === 1
                                 ? event.key.charCodeAt(0)
                                 : 0;
 
@@ -1313,7 +1533,7 @@
         const PART_COUNT = 329;
 
         const PART_PREFIX =
-            "game-files/cod4-modern-warfare.zip.part";
+            "https://raw.githubusercontent.com/linkawaken1979-alt/kisakcod/main/game-files/cod4-modern-warfare.zip.part";
 
         const PART_DIGITS = 3;
 
@@ -1341,11 +1561,12 @@
 
                 this.totalSize = 0;
 
-                this.loadedPart = -1;
-                this.loadedBuffer = null;
-
-                this.loadingPart = -1;
-                this.loadingPromise = null;
+                // Small forward-looking cache: keeps the part currently
+                // being read plus (usually) the next one that got
+                // prefetched in the background, so we don't hold every
+                // part in memory at once.
+                this.partCache = new Map();
+                this.partLoads = new Map();
 
                 this.bytesDownloaded = 0;
 
@@ -1421,7 +1642,7 @@
 
                     }
 
-                } catch {}
+                } catch { }
 
 
                 const response =
@@ -1482,7 +1703,7 @@
 
                     try {
                         reader.releaseLock();
-                    } catch {}
+                    } catch { }
 
                 }
 
@@ -1635,217 +1856,296 @@
             }
 
 
-            async loadPart(index) {
+            // Actually fetches one part from the network. `background`
+            // is true when this call is a lookahead prefetch rather than
+            // a fetch a caller is actively blocked on, so we don't let it
+            // stomp on the "Extracting N / M" status text.
+            async _downloadPart(
+                index,
+                background = false
+            ) {
 
-                if (
-                    this.loadedPart === index &&
-                    this.loadedBuffer
-                ) {
-
-                    return this.loadedBuffer;
-
-                }
-
-
-                if (
-                    this.loadingPart === index &&
-                    this.loadingPromise
-                ) {
-
-                    return this.loadingPromise;
-
-                }
+                const url =
+                    this.partUrl(index);
 
 
-                this.loadingPart =
-                    index;
-
-
-                this.loadingPromise =
-                    (async () => {
-
-                        const url =
-                            this.partUrl(index);
-
-
-                        const response =
-                            await fetch(
-                                url,
-                                {
-                                    cache:
-                                        "force-cache"
-                                }
-                            );
-
-
-                        if (!response.ok) {
-
-                            throw new Error(
-                                `Failed to download COD4 part ${index + 1}: HTTP ${response.status}`
-                            );
-
+                const response =
+                    await fetch(
+                        url,
+                        {
+                            cache:
+                                "force-cache"
                         }
+                    );
 
 
-                        if (response.body) {
+                if (!response.ok) {
 
-                            const reader =
-                                response.body.getReader();
+                    throw new Error(
+                        `Failed to download COD4 part ${index + 1}: HTTP ${response.status}`
+                    );
 
-                            const chunks = [];
-
-                            let totalLoaded = 0;
+                }
 
 
-                            const expected =
-                                Number(
-                                    response.headers.get(
-                                        "content-length"
-                                    )
+                let buffer;
+
+
+                if (response.body) {
+
+                    const reader =
+                        response.body.getReader();
+
+                    const chunks = [];
+
+                    let totalLoaded = 0;
+
+
+                    const expected =
+                        Number(
+                            response.headers.get(
+                                "content-length"
+                            )
+                        );
+
+
+                    while (true) {
+
+                        const {
+                            value,
+                            done
+                        } =
+                            await reader.read();
+
+
+                        if (done)
+                            break;
+
+
+                        if (
+                            value &&
+                            value.byteLength
+                        ) {
+
+                            chunks.push(value);
+
+                            totalLoaded +=
+                                value.byteLength;
+
+
+                            if (!background) {
+
+                                const partSize =
+                                    this.offsets[index + 1] -
+                                    this.offsets[index];
+
+
+                                const partFraction =
+                                    expected > 0
+                                        ? totalLoaded / expected
+                                        : totalLoaded /
+                                        Math.max(
+                                            1,
+                                            partSize
+                                        );
+
+
+                                const overall =
+                                    (
+                                        index +
+                                        Math.min(
+                                            1,
+                                            partFraction
+                                        )
+                                    ) /
+                                    this.partCount;
+
+
+                                const displayProgress =
+                                    0.12 +
+                                    overall *
+                                    0.48;
+
+
+                                setProgress(
+                                    displayProgress,
+                                    `Downloading COD4 part ${index + 1} / ${this.partCount}`
                                 );
 
 
-                            while (true) {
-
-                                const {
-                                    value,
-                                    done
-                                } =
-                                    await reader.read();
-
-
-                                if (done)
-                                    break;
-
-
-                                if (
-                                    value &&
-                                    value.byteLength
-                                ) {
-
-                                    chunks.push(value);
-
-                                    totalLoaded +=
-                                        value.byteLength;
-
-
-                                    const partSize =
-                                        this.offsets[index + 1] -
-                                        this.offsets[index];
-
-
-                                    const partFraction =
-                                        expected > 0
-                                            ? totalLoaded / expected
-                                            : totalLoaded /
-                                              Math.max(
-                                                  1,
-                                                  partSize
-                                              );
-
-
-                                    const overall =
-                                        (
-                                            index +
-                                            Math.min(
-                                                1,
-                                                partFraction
-                                            )
-                                        ) /
-                                        this.partCount;
-
-
-                                    const displayProgress =
-                                        0.12 +
-                                        overall *
-                                        0.48;
-
-
-                                    setProgress(
-                                        displayProgress,
-                                        `Downloading COD4 part ${index + 1} / ${this.partCount}`
-                                    );
-
-
-                                    setDownloadUI(
-                                        `Downloading COD4 part ${index + 1} / ${this.partCount}`,
-                                        `${formatBytes(totalLoaded)}${expected > 0 ? " / " + formatBytes(expected) : ""}`
-                                    );
-
-                                }
+                                setDownloadUI(
+                                    `Downloading COD4 part ${index + 1} / ${this.partCount}`,
+                                    `${formatBytes(totalLoaded)}${expected > 0 ? " / " + formatBytes(expected) : ""}`
+                                );
 
                             }
 
-
-                            const buffer =
-                                new Uint8Array(
-                                    totalLoaded
-                                );
-
-
-                            let position = 0;
-
-
-                            for (
-                                const chunk of chunks
-                            ) {
-
-                                buffer.set(
-                                    chunk,
-                                    position
-                                );
-
-                                position +=
-                                    chunk.byteLength;
-                            }
-
-
-                            this.loadedPart =
-                                index;
-
-                            this.loadedBuffer =
-                                buffer;
-
-                            this.bytesDownloaded +=
-                                buffer.byteLength;
-
-
-                            return buffer;
-
                         }
 
-
-                        const buffer =
-                            new Uint8Array(
-                                await response.arrayBuffer()
-                            );
+                    }
 
 
-                        this.loadedPart =
-                            index;
-
-                        this.loadedBuffer =
-                            buffer;
-
-                        this.bytesDownloaded +=
-                            buffer.byteLength;
+                    buffer =
+                        new Uint8Array(
+                            totalLoaded
+                        );
 
 
-                        return buffer;
-
-                    })();
+                    let position = 0;
 
 
-                try {
+                    for (
+                        const chunk of chunks
+                    ) {
 
-                    return await this.loadingPromise;
+                        buffer.set(
+                            chunk,
+                            position
+                        );
 
-                } finally {
+                        position +=
+                            chunk.byteLength;
+                    }
 
-                    this.loadingPart = -1;
-                    this.loadingPromise = null;
+                } else {
+
+                    buffer =
+                        new Uint8Array(
+                            await response.arrayBuffer()
+                        );
 
                 }
+
+
+                this.bytesDownloaded +=
+                    buffer.byteLength;
+
+
+                this.partCache.set(
+                    index,
+                    buffer
+                );
+
+
+                // Keep at most the two most recent parts in memory
+                // (the one being consumed and the one prefetched ahead
+                // of it) so memory use doesn't grow with the archive.
+                if (
+                    this.partCache.size > 2
+                ) {
+
+                    const oldest =
+                        [...this.partCache.keys()].sort(
+                            (a, b) => a - b
+                        )[0];
+
+
+                    if (oldest !== index) {
+
+                        this.partCache.delete(
+                            oldest
+                        );
+
+                    }
+
+                }
+
+
+                return buffer;
+
+            }
+
+
+            async loadPart(
+                index,
+                background = false
+            ) {
+
+                const cached =
+                    this.partCache.get(index);
+
+
+                if (cached) {
+
+                    return cached;
+
+                }
+
+
+                let promise =
+                    this.partLoads.get(index);
+
+
+                if (!promise) {
+
+                    promise =
+                        this._downloadPart(
+                            index,
+                            background
+                        );
+
+
+                    this.partLoads.set(
+                        index,
+                        promise
+                    );
+
+
+                    promise.then(
+                        () => {
+                            this.partLoads.delete(index);
+                        },
+                        () => {
+                            this.partLoads.delete(index);
+                        }
+                    );
+
+                }
+
+
+                return promise;
+
+            }
+
+
+            // Kicks off a background download for `index` without
+            // making the caller wait on it. This lets the next split
+            // ZIP part start downloading over the network while the
+            // current part's files are still being decompressed and
+            // written to disk, instead of those two steps happening
+            // strictly one after another.
+            prefetchPart(index) {
+
+                if (
+                    index < 0 ||
+                    index >= this.partCount
+                ) {
+
+                    return;
+
+                }
+
+
+                if (
+                    this.partCache.has(index) ||
+                    this.partLoads.has(index)
+                ) {
+
+                    return;
+
+                }
+
+
+                this.loadPart(
+                    index,
+                    true
+                ).catch(() => {
+
+                    // Swallowed: if the background prefetch fails,
+                    // the next real read() for this part will retry
+                    // the download and surface any error normally.
+
+                });
 
             }
 
@@ -1897,6 +2197,15 @@
 
                     const buffer =
                         await this.loadPart(part);
+
+
+                    // Now that this part is in hand, start warming up
+                    // the next one in the background so its download
+                    // overlaps with this part's extraction instead of
+                    // waiting until it's needed.
+                    this.prefetchPart(
+                        part + 1
+                    );
 
 
                     const inside =
@@ -2628,7 +2937,7 @@
 
             const wrapper =
                 topLevelCandidates.size === 1 &&
-                !topLevelCandidates.has("")
+                    !topLevelCandidates.has("")
                     ? [
                         ...topLevelCandidates
                     ][0]
@@ -3108,7 +3417,7 @@
 
                 try {
                     await writable.abort();
-                } catch {}
+                } catch { }
 
 
                 throw error;
@@ -3225,6 +3534,52 @@
            FILE FILTER
            ============================================================ */
 
+        /* ============================================================
+           CAMPAIGN MAP DETECTION
+           (mirrors the required-zone list baked into kisakcod-sp.js,
+           so "core" files are never treated as skippable campaign maps)
+           ============================================================ */
+
+        const REQUIRED_ZONE_NAMES = new Set([
+            "code_post_gfx",
+            "code_post_gfx_mp",
+            "code_pre_gfx",
+            "code_pre_gfx_mp",
+            "common",
+            "common_mp",
+            "ui",
+            "ui_mp",
+            "localized_code_post_gfx",
+            "localized_code_post_gfx_mp",
+            "localized_common",
+            "localized_common_mp"
+        ]);
+
+
+        function isCampaignMapPath(lowerPath) {
+
+            const match =
+                lowerPath.match(/^zone\/[^/]+\/([^/]+)\.(ff|iwd)$/);
+
+            if (!match) {
+                return false;
+            }
+
+            const zoneName = match[1];
+
+            if (REQUIRED_ZONE_NAMES.has(zoneName)) {
+                return false;
+            }
+
+            if (zoneName.startsWith("mp_")) {
+                return false;
+            }
+
+            return true;
+
+        }
+
+
         function shouldExtract(entry) {
 
             if (entry.directory)
@@ -3278,6 +3633,16 @@
                     lower.endsWith(".mp4") ||
                     lower.endsWith(".avi")
                 )
+            ) {
+
+                return false;
+
+            }
+
+
+            if (
+                excludeCampaign.checked &&
+                isCampaignMapPath(lower)
             ) {
 
                 return false;
@@ -3459,9 +3824,8 @@
             } catch (error) {
 
                 throw new Error(
-                    `Failed extracting "${path}": ${
-                        error?.message ||
-                        error
+                    `Failed extracting "${path}": ${error?.message ||
+                    error
                     }`
                 );
 
@@ -3644,9 +4008,9 @@
                     const extractionProgress =
                         totalOutput > 0
                             ? completedBytes /
-                              totalOutput
+                            totalOutput
                             : completedFiles /
-                              files.length;
+                            files.length;
 
 
                     const displayed =
@@ -3926,9 +4290,68 @@
 
                 try {
                     canvas.focus();
-                } catch {}
+                } catch { }
 
             }
+
+
+            enforceHiddenCursor();
+
+        }
+
+
+        /* ============================================================
+           FORCE-HIDE SYSTEM CURSOR WHILE PLAYING
+
+           Belt-and-suspenders on top of the CSS "cursor: none" rule:
+           some browsers/engine code paths can quietly reset the
+           cursor back to visible, so we keep stamping it back to
+           "none" on every mouse movement while the game is running.
+           ============================================================ */
+
+        let cursorEnforcerInstalled = false;
+
+        function enforceHiddenCursor() {
+
+            if (cursorEnforcerInstalled)
+                return;
+
+            cursorEnforcerInstalled = true;
+
+            const hide = () => {
+
+                if (
+                    document.body.classList.contains(
+                        "game-running"
+                    )
+                ) {
+
+                    canvas.style.setProperty(
+                        "cursor",
+                        "none",
+                        "important"
+                    );
+
+                }
+
+            };
+
+            document.addEventListener(
+                "mousemove",
+                hide,
+                true
+            );
+
+            document.addEventListener(
+                "mouseenter",
+                hide,
+                true
+            );
+
+            setInterval(
+                hide,
+                250
+            );
 
         }
 
@@ -4006,6 +4429,638 @@
 
 
         /* ============================================================
+           SAVE DATA EXPORT
+           (CoD4's profiles/saves/configs live under /cod4/players in
+           OPFS, so this walks that folder and packs it into a single
+           downloadable file the user can keep as a backup.)
+           ============================================================ */
+
+        const ZIP_CRC_TABLE = (() => {
+
+            const table =
+                new Uint32Array(256);
+
+
+            for (
+                let n = 0;
+                n < 256;
+                n++
+            ) {
+
+                let c = n;
+
+
+                for (
+                    let k = 0;
+                    k < 8;
+                    k++
+                ) {
+
+                    c =
+                        (c & 1)
+                            ? (0xEDB88320 ^ (c >>> 1))
+                            : (c >>> 1);
+
+                }
+
+
+                table[n] =
+                    c >>> 0;
+
+            }
+
+
+            return table;
+
+        })();
+
+
+        function crc32(data) {
+
+            let crc = 0xFFFFFFFF;
+
+
+            for (
+                let i = 0;
+                i < data.length;
+                i++
+            ) {
+
+                crc =
+                    ZIP_CRC_TABLE[
+                    (crc ^ data[i]) & 0xFF
+                    ] ^ (crc >>> 8);
+
+            }
+
+
+            return (
+                crc ^ 0xFFFFFFFF
+            ) >>> 0;
+
+        }
+
+
+        async function collectDirectoryFiles(
+            dirHandle,
+            prefix,
+            files
+        ) {
+
+            for await (
+                const [name, handle] of dirHandle.entries()
+            ) {
+
+                const path =
+                    prefix
+                        ? prefix + "/" + name
+                        : name;
+
+
+                if (
+                    handle.kind ===
+                    "directory"
+                ) {
+
+                    await collectDirectoryFiles(
+                        handle,
+                        path,
+                        files
+                    );
+
+                } else {
+
+                    const file =
+                        await handle.getFile();
+
+                    const data =
+                        new Uint8Array(
+                            await file.arrayBuffer()
+                        );
+
+                    files.push(
+                        {
+                            path,
+                            data
+                        }
+                    );
+
+                }
+
+            }
+
+        }
+
+
+        // Builds a plain, uncompressed ("store" method) ZIP so this
+        // stays dependency-free - the save data is small text/binary
+        // config and profile files, so skipping compression is fine.
+        function buildStoreZip(files) {
+
+            const localChunks = [];
+            const centralChunks = [];
+
+            let offset = 0;
+
+
+            for (
+                const {
+                    path,
+                    data
+                } of files
+            ) {
+
+                const nameBytes =
+                    new TextEncoder().encode(
+                        path
+                    );
+
+                const crc =
+                    crc32(data);
+
+
+                const localHeader =
+                    new DataView(
+                        new ArrayBuffer(30)
+                    );
+
+                localHeader.setUint32(0, 0x04034b50, true);
+                localHeader.setUint16(4, 20, true);
+                localHeader.setUint16(6, 0, true);
+                localHeader.setUint16(8, 0, true);
+                localHeader.setUint16(10, 0, true);
+                localHeader.setUint16(12, 0, true);
+                localHeader.setUint32(14, crc, true);
+                localHeader.setUint32(18, data.length, true);
+                localHeader.setUint32(22, data.length, true);
+                localHeader.setUint16(26, nameBytes.length, true);
+                localHeader.setUint16(28, 0, true);
+
+
+                localChunks.push(
+                    new Uint8Array(localHeader.buffer),
+                    nameBytes,
+                    data
+                );
+
+
+                const centralHeader =
+                    new DataView(
+                        new ArrayBuffer(46)
+                    );
+
+                centralHeader.setUint32(0, 0x02014b50, true);
+                centralHeader.setUint16(4, 20, true);
+                centralHeader.setUint16(6, 20, true);
+                centralHeader.setUint16(8, 0, true);
+                centralHeader.setUint16(10, 0, true);
+                centralHeader.setUint16(12, 0, true);
+                centralHeader.setUint16(14, 0, true);
+                centralHeader.setUint32(16, crc, true);
+                centralHeader.setUint32(20, data.length, true);
+                centralHeader.setUint32(24, data.length, true);
+                centralHeader.setUint16(28, nameBytes.length, true);
+                centralHeader.setUint16(30, 0, true);
+                centralHeader.setUint16(32, 0, true);
+                centralHeader.setUint16(34, 0, true);
+                centralHeader.setUint16(36, 0, true);
+                centralHeader.setUint32(38, 0, true);
+                centralHeader.setUint32(42, offset, true);
+
+
+                centralChunks.push(
+                    new Uint8Array(centralHeader.buffer),
+                    nameBytes
+                );
+
+
+                offset +=
+                    localHeader.byteLength +
+                    nameBytes.length +
+                    data.length;
+
+            }
+
+
+            const centralStart =
+                offset;
+
+            let centralSize = 0;
+
+
+            for (
+                const chunk of centralChunks
+            ) {
+
+                centralSize +=
+                    chunk.byteLength;
+
+            }
+
+
+            const endRecord =
+                new DataView(
+                    new ArrayBuffer(22)
+                );
+
+            endRecord.setUint32(0, 0x06054b50, true);
+            endRecord.setUint16(4, 0, true);
+            endRecord.setUint16(6, 0, true);
+            endRecord.setUint16(8, files.length, true);
+            endRecord.setUint16(10, files.length, true);
+            endRecord.setUint32(12, centralSize, true);
+            endRecord.setUint32(16, centralStart, true);
+            endRecord.setUint16(20, 0, true);
+
+
+            return new Blob(
+                [
+                    ...localChunks,
+                    ...centralChunks,
+                    new Uint8Array(endRecord.buffer)
+                ]
+            );
+
+        }
+
+
+        async function downloadSaveData() {
+
+            if (downloadSaveButton.disabled)
+                return;
+
+
+            downloadSaveButton.disabled =
+                true;
+
+            uploadSaveButton.disabled =
+                true;
+
+
+            try {
+
+                status(
+                    "Collecting save data..."
+                );
+
+
+                log(
+                    "Collecting save data for download..."
+                );
+
+
+                const root =
+                    await getOPFSRoot();
+
+                const cod4 =
+                    await root.getDirectoryHandle(
+                        "cod4"
+                    );
+
+                const players =
+                    await cod4.getDirectoryHandle(
+                        "players"
+                    );
+
+
+                const files = [];
+
+
+                await collectDirectoryFiles(
+                    players,
+                    "players",
+                    files
+                );
+
+
+                if (!files.length) {
+
+                    status(
+                        "No save data found yet."
+                    );
+
+
+                    log(
+                        "No files found under /cod4/players."
+                    );
+
+
+                    return;
+
+                }
+
+
+                const blob =
+                    buildStoreZip(files);
+
+
+                const url =
+                    URL.createObjectURL(
+                        blob
+                    );
+
+                const link =
+                    document.createElement(
+                        "a"
+                    );
+
+                link.href = url;
+                link.download = "cod4-save.dat";
+
+                document.body.appendChild(
+                    link
+                );
+
+                link.click();
+                link.remove();
+
+
+                URL.revokeObjectURL(
+                    url
+                );
+
+
+                status(
+                    "Save data downloaded."
+                );
+
+
+                log(
+                    `Downloaded cod4-save.dat (${files.length.toLocaleString()} files, ${formatBytes(blob.size)}).`
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+
+                const notFound =
+                    error?.name ===
+                    "NotFoundError";
+
+
+                status(
+                    notFound
+                        ? "No save data found yet. Play the game first."
+                        : "Could not collect save data."
+                );
+
+
+                log(
+                    "ERROR: " +
+                    (
+                        error?.message ||
+                        error
+                    )
+                );
+
+            } finally {
+
+                downloadSaveButton.disabled =
+                    false;
+
+                uploadSaveButton.disabled =
+                    false;
+
+            }
+
+        }
+
+
+        /* ============================================================
+           SAVE DATA IMPORT
+           (reverse of the export above: reads a cod4-save.dat the user
+           picks, walks its ZIP directory with the same reader used for
+           the install archive, and writes each entry back under
+           /cod4/<name> in OPFS.)
+           ============================================================ */
+
+        class BufferZipSource {
+
+            constructor(buffer) {
+
+                this.buffer = buffer;
+                this.totalSize = buffer.length;
+
+            }
+
+
+            async read(
+                position,
+                length
+            ) {
+
+                return this.buffer.subarray(
+                    position,
+                    position + length
+                );
+
+            }
+
+        }
+
+
+        async function restoreSaveEntry(
+            source,
+            cod4,
+            entry
+        ) {
+
+            if (entry.directory) {
+
+                await ensureOPFSDirectory(
+                    cod4,
+                    entry.name
+                );
+
+
+                return;
+
+            }
+
+
+            const dataPosition =
+                await getCompressedDataPosition(
+                    source,
+                    entry
+                );
+
+
+            const compressedBytes =
+                source.buffer.subarray(
+                    dataPosition,
+                    dataPosition +
+                    entry.compressedSize
+                );
+
+
+            let outputStream =
+                new Blob(
+                    [compressedBytes]
+                ).stream();
+
+
+            if (
+                entry.method === 8
+            ) {
+
+                if (
+                    !(
+                        "DecompressionStream"
+                        in window
+                    )
+                ) {
+
+                    throw new Error(
+                        "This browser does not support DecompressionStream."
+                    );
+
+                }
+
+
+                outputStream =
+                    outputStream.pipeThrough(
+                        new DecompressionStream(
+                            "deflate-raw"
+                        )
+                    );
+
+            } else if (
+                entry.method !== 0
+            ) {
+
+                throw new Error(
+                    `Unsupported ZIP compression method ${entry.method} for ${entry.name}`
+                );
+
+            }
+
+
+            await writeStreamToOPFS(
+                cod4,
+                entry.name,
+                outputStream
+            );
+
+        }
+
+
+        async function uploadSaveData(file) {
+
+            if (uploadSaveButton.disabled)
+                return;
+
+
+            uploadSaveButton.disabled =
+                true;
+
+            downloadSaveButton.disabled =
+                true;
+
+
+            try {
+
+                status(
+                    "Reading save data file..."
+                );
+
+
+                log(
+                    `Restoring save data from ${file.name}...`
+                );
+
+
+                const buffer =
+                    new Uint8Array(
+                        await file.arrayBuffer()
+                    );
+
+
+                const source =
+                    new BufferZipSource(
+                        buffer
+                    );
+
+
+                const entries =
+                    await readZipDirectory(
+                        source
+                    );
+
+
+                const root =
+                    await getOPFSRoot();
+
+                const cod4 =
+                    await root.getDirectoryHandle(
+                        "cod4",
+                        {
+                            create: true
+                        }
+                    );
+
+
+                let restored = 0;
+
+
+                for (
+                    const entry of entries
+                ) {
+
+                    await restoreSaveEntry(
+                        source,
+                        cod4,
+                        entry
+                    );
+
+
+                    if (!entry.directory)
+                        restored++;
+
+                }
+
+
+                status(
+                    "Save data restored."
+                );
+
+
+                log(
+                    `Restored ${restored.toLocaleString()} save file(s) from ${file.name}.`
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+
+                status(
+                    "Could not restore save data. Make sure you picked a cod4-save.dat file downloaded from this page."
+                );
+
+
+                log(
+                    "ERROR: " +
+                    (
+                        error?.message ||
+                        error
+                    )
+                );
+
+            } finally {
+
+                uploadSaveButton.disabled =
+                    false;
+
+                downloadSaveButton.disabled =
+                    false;
+
+            }
+
+        }
+
+
+        /* ============================================================
            FORMAT BYTES
            ============================================================ */
 
@@ -4036,7 +5091,7 @@
                 return (
                     bytes / 1024
                 ).toFixed(1) +
-                " KiB";
+                    " KiB";
 
             }
 
@@ -4048,7 +5103,7 @@
                 return (
                     bytes / 1024 ** 2
                 ).toFixed(1) +
-                " MiB";
+                    " MiB";
 
             }
 
@@ -4080,6 +5135,43 @@
         wipeButton.addEventListener(
             "click",
             wipeGame
+        );
+
+
+        downloadSaveButton.addEventListener(
+            "click",
+            downloadSaveData
+        );
+
+
+        uploadSaveButton.addEventListener(
+            "click",
+            () => {
+                uploadSaveInput.click();
+            }
+        );
+
+
+        uploadSaveInput.addEventListener(
+            "change",
+            () => {
+
+                const file =
+                    uploadSaveInput.files &&
+                    uploadSaveInput.files[0];
+
+
+                uploadSaveInput.value =
+                    "";
+
+
+                if (file) {
+
+                    uploadSaveData(file);
+
+                }
+
+            }
         );
 
 
